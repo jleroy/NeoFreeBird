@@ -4,6 +4,7 @@
 //
 
 #import "WebLoginViewController.h"
+#import "WebLogin2FA.h"
 #import <WebKit/WebKit.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -175,17 +176,10 @@ static id accountWithUsernameAndUserID(Class accountClass, NSString* username,
     WKWebViewConfiguration* cfg = [[WKWebViewConfiguration alloc] init];
     // Make sure the webview is always logged out, otherwise it'll duplicate the existing session
     cfg.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
-    // Route-based fallback does not depend on localized or visible controls.
-    NSURL* fallbackURL = [[BHTBundle sharedBundle] pathForFile:@"WebLogin2FA.js"];
-    NSString* fallbackJS = fallbackURL
-        ? [NSString stringWithContentsOfURL:fallbackURL encoding:NSUTF8StringEncoding error:nil]
-        : nil;
-    if (fallbackJS.length) {
-        [cfg.userContentController addUserScript:
-            [[WKUserScript alloc] initWithSource:fallbackJS
-                                  injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
-                               forMainFrameOnly:YES]];
-    }
+    [cfg.userContentController addUserScript:
+        [[WKUserScript alloc] initWithSource:kWebLogin2FAJS
+                              injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                           forMainFrameOnly:YES]];
     self.webView = [[WKWebView alloc] initWithFrame:self.view.bounds configuration:cfg];
     self.webView.navigationDelegate = self;
     self.webView.customUserAgent = kWebLoginUserAgent;
