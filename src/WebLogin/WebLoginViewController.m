@@ -14,6 +14,7 @@
 extern void webLoginDidCaptureCookies(NSString* userID, NSString* username,
                                       NSDictionary<NSString*, NSString*>* cookiePairs);
 
+// The desktop login flow is needed when running the iOS app on macOS.
 static NSString* const kWebLoginUserAgent =
     @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36";
 
@@ -174,6 +175,17 @@ static id accountWithUsernameAndUserID(Class accountClass, NSString* username,
     WKWebViewConfiguration* cfg = [[WKWebViewConfiguration alloc] init];
     // Make sure the webview is always logged out, otherwise it'll duplicate the existing session
     cfg.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+    // Route-based fallback does not depend on localized or visible controls.
+    NSURL* fallbackURL = [[BHTBundle sharedBundle] pathForFile:@"WebLogin2FA.js"];
+    NSString* fallbackJS = fallbackURL
+        ? [NSString stringWithContentsOfURL:fallbackURL encoding:NSUTF8StringEncoding error:nil]
+        : nil;
+    if (fallbackJS.length) {
+        [cfg.userContentController addUserScript:
+            [[WKUserScript alloc] initWithSource:fallbackJS
+                                  injectionTime:WKUserScriptInjectionTimeAtDocumentEnd
+                               forMainFrameOnly:YES]];
+    }
     self.webView = [[WKWebView alloc] initWithFrame:self.view.bounds configuration:cfg];
     self.webView.navigationDelegate = self;
     self.webView.customUserAgent = kWebLoginUserAgent;
