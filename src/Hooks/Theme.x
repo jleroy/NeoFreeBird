@@ -542,12 +542,27 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
 
 %end
 
+static char BHTDimHidSolidColorViewKey;
+
 %hook TFNSolidColorView
 
+// Dim only recolors Dark, so these views are hidden in Dark alone. The flag
+// records which ones Dim hid, so views the app hid itself stay hidden in Light.
 - (void)didMoveToWindow {
     %orig;
-    if (BHTDimThemeEnabled()) {
-        self.hidden = TRUE;
+    UIView* view = (UIView*)self;
+    if (!view.window || !BHTDimThemeEnabled()) return;
+
+    if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+        if (!view.hidden) {
+            objc_setAssociatedObject(view, &BHTDimHidSolidColorViewKey, @YES,
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            view.hidden = YES;
+        }
+    } else if (objc_getAssociatedObject(view, &BHTDimHidSolidColorViewKey)) {
+        objc_setAssociatedObject(view, &BHTDimHidSolidColorViewKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        view.hidden = NO;
     }
 }
 
@@ -684,7 +699,8 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window && BHTDimThemeEnabled() && !NFBLiquidGlassEnabled()) {
+    if (self.window && BHTDimThemeEnabled() && !NFBLiquidGlassEnabled() &&
+        self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         self.backgroundColor = BHTDimBackgroundColor();
     }
 }
