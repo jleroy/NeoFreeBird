@@ -231,13 +231,26 @@ static BOOL BHTIsScrollEdgeBlurTintView(UIView* view) {
     return NO;
 }
 
+// A flat Dim color pinned in Dark can't follow a live switch back to Light, so
+// remember the color it replaced. NSNull stands for a nil background.
+static char BHTDimOriginalBackgroundKey;
+
+static void BHTSaveDimOriginalBackground(UIView* view, UIColor* original) {
+    objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, original ?: (id)NSNull.null,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     if (!BHTIsInsideScrollEdgeTreatment(blur)) return;
     Ivar tintField = class_getInstanceVariable(object_getClass(blur), "tintView");
     UIView* tintView = tintField ? object_getIvar(blur, tintField) : nil;
     if (![tintView isKindOfClass:UIView.class]) return;
-    UIColor* dim = BHTDimScrollEdgeColor(tintView.backgroundColor, blur.traitCollection);
-    if (dim) tintView.backgroundColor = dim;
+    UIColor* original = tintView.backgroundColor;
+    UIColor* dim = BHTDimScrollEdgeColor(original, blur.traitCollection);
+    if (dim) {
+        tintView.backgroundColor = dim;
+        BHTSaveDimOriginalBackground(tintView, original);
+    }
 }
 
 static void BHTApplyScrollEdgeFade(UIView* fade) {
@@ -487,6 +500,17 @@ static void BHTApplyDimScrollEdgeChildren(UIView* treatment) {
 // recolor them. Normalize only UIView background assignments, and repeat the
 // normalization when a view enters a window so colors assigned before traits
 // were available are covered as well.
+static BOOL BHTColorIsDimShade(UIColor* color) {
+    CGFloat red = 0, green = 0, blue = 0, alpha = 0;
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha] || alpha < 0.99) return NO;
+    return (fabs(red - 21.0 / 255.0) < 0.002 && fabs(green - 32.0 / 255.0) < 0.002 &&
+            fabs(blue - 43.0 / 255.0) < 0.002) ||
+           (fabs(red - 25.0 / 255.0) < 0.002 && fabs(green - 39.0 / 255.0) < 0.002 &&
+            fabs(blue - 52.0 / 255.0) < 0.002) ||
+           (fabs(red - 28.0 / 255.0) < 0.002 && fabs(green - 40.0 / 255.0) < 0.002 &&
+            fabs(blue - 54.0 / 255.0) < 0.002);
+}
+
 static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
     if (!view || !color || !BHTDimThemeEnabled() ||
         view.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
@@ -507,36 +531,50 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
     // The UIColor hooks may already have resolved a catalog background to a
     // Dim shade. Pin that resolved value on the view so later reuse cannot
     // fall back to the catalog's original pure-black dark variant.
-    CGFloat red = 0, green = 0, blue = 0, alpha = 0;
-    if ([resolved getRed:&red green:&green blue:&blue alpha:&alpha] && alpha >= 0.99) {
-        BOOL isDimShade =
-            (fabs(red - 21.0 / 255.0) < 0.002 && fabs(green - 32.0 / 255.0) < 0.002 &&
-             fabs(blue - 43.0 / 255.0) < 0.002) ||
-            (fabs(red - 25.0 / 255.0) < 0.002 && fabs(green - 39.0 / 255.0) < 0.002 &&
-             fabs(blue - 52.0 / 255.0) < 0.002) ||
-            (fabs(red - 28.0 / 255.0) < 0.002 && fabs(green - 40.0 / 255.0) < 0.002 &&
-             fabs(blue - 54.0 / 255.0) < 0.002);
-        if (isDimShade) {
-            return resolved;
-        }
+    if (BHTColorIsDimShade(resolved)) {
+        return resolved;
     }
 
     return color;
 }
 
+// Brings one view's background in line with its current appearance: applies
+// Dim in Dark, and puts back the color Dim replaced in Light.
+static void BHTRefreshDimBackground(UIView* view) {
+    if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+        UIColor* current = view.backgroundColor;
+        if (current && BHTDimNormalizedViewBackground(view, current) != current) {
+            view.backgroundColor = current;
+        }
+        return;
+    }
+
+    id saved = objc_getAssociatedObject(view, &BHTDimOriginalBackgroundKey);
+    if (!saved) return;
+    view.backgroundColor = [saved isKindOfClass:UIColor.class] ? saved : nil;
+    objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 %hook UIView
 
 - (void)setBackgroundColor:(UIColor*)color {
-    %orig(BHTDimNormalizedViewBackground(self, color));
+    UIColor* normalized = BHTDimNormalizedViewBackground(self, color);
+    if (normalized != color) {
+        BHTSaveDimOriginalBackground(self, color);
+    } else if (objc_getAssociatedObject(self, &BHTDimOriginalBackgroundKey) &&
+               !BHTColorIsDimShade(color)) {
+        // The app assigned a new color of its own, which supersedes the saved one.
+        objc_setAssociatedObject(self, &BHTDimOriginalBackgroundKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    %orig(normalized);
 }
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window && self.backgroundColor) {
-        UIColor* normalized = BHTDimNormalizedViewBackground(self, self.backgroundColor);
-        if (normalized != self.backgroundColor) {
-            self.backgroundColor = normalized;
-        }
+    if (self.window) {
+        BHTRefreshDimBackground(self);
     }
 }
 
@@ -544,14 +582,10 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
 
 static char BHTDimHidSolidColorViewKey;
 
-%hook TFNSolidColorView
-
 // Dim only recolors Dark, so these views are hidden in Dark alone. The flag
 // records which ones Dim hid, so views the app hid itself stay hidden in Light.
-- (void)didMoveToWindow {
-    %orig;
-    UIView* view = (UIView*)self;
-    if (!view.window || !BHTDimThemeEnabled()) return;
+static void BHTApplyDimSolidColorView(UIView* view) {
+    if (!BHTDimThemeEnabled()) return;
 
     if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         if (!view.hidden) {
@@ -563,6 +597,15 @@ static char BHTDimHidSolidColorViewKey;
         objc_setAssociatedObject(view, &BHTDimHidSolidColorViewKey, nil,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         view.hidden = NO;
+    }
+}
+
+%hook TFNSolidColorView
+
+- (void)didMoveToWindow {
+    %orig;
+    if (((UIView*)self).window) {
+        BHTApplyDimSolidColorView((UIView*)self);
     }
 }
 
@@ -602,13 +645,21 @@ static UIImage* BHTDimSearchPillImage(void) {
     return image;
 }
 
+static char BHTDimSearchPillAppliedKey;
+
 static void BHTApplyDimSearchPill(UISearchBar* searchBar) {
-    if (!BHTDimThemeEnabled() ||
-        searchBar.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
-        return;
+    if (!BHTDimThemeEnabled()) return;
+
+    if (searchBar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+        objc_setAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey, @YES,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [searchBar setSearchFieldBackgroundImage:BHTDimSearchPillImage()
+                                        forState:UIControlStateNormal];
+    } else if (objc_getAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey)) {
+        objc_setAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [searchBar setSearchFieldBackgroundImage:nil forState:UIControlStateNormal];
     }
-    [searchBar setSearchFieldBackgroundImage:BHTDimSearchPillImage()
-                                    forState:UIControlStateNormal];
 }
 
 %hook TFNSearchBar
@@ -695,14 +746,95 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
 
 %end
 
+static void BHTApplyDimBarBackground(UIView* bar) {
+    if (!BHTDimThemeEnabled() || NFBLiquidGlassEnabled() ||
+        bar.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
+        return;
+    }
+    UIColor* original = bar.backgroundColor;
+    if (BHTColorIsDimShade(original)) return;
+    bar.backgroundColor = BHTDimBackgroundColor();
+    BHTSaveDimOriginalBackground(bar, original);
+}
+
 %hook _UIBarBackground
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window && BHTDimThemeEnabled() && !NFBLiquidGlassEnabled() &&
-        self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
-        self.backgroundColor = BHTDimBackgroundColor();
+    if (self.window) {
+        BHTApplyDimBarBackground(self);
     }
+}
+
+%end
+
+// MARK: - Live appearance changes
+
+static void BHTRefreshDimInView(UIView* root) {
+    Class barClass = NSClassFromString(@"_UIBarBackground");
+    Class solidClass = NSClassFromString(@"TFNSolidColorView");
+    Class searchBarClass = NSClassFromString(@"TFNSearchBar");
+    Class blurClass = NSClassFromString(@"XDSBlur");
+    Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
+
+    NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
+    while (pending.count) {
+        UIView* view = pending.lastObject;
+        [pending removeLastObject];
+
+        BHTRefreshDimBackground(view);
+        if (barClass && [view isKindOfClass:barClass]) {
+            BHTApplyDimBarBackground(view);
+        } else if (solidClass && [view isKindOfClass:solidClass]) {
+            BHTApplyDimSolidColorView(view);
+        } else if (searchBarClass && [view isKindOfClass:searchBarClass]) {
+            BHTApplyDimSearchPill((UISearchBar*)view);
+        } else if (blurClass && [view isKindOfClass:blurClass]) {
+            BHTApplyScrollEdgeBlur((XDSBlur*)view);
+        } else if (fadeClass && [view isKindOfClass:fadeClass]) {
+            BHTApplyScrollEdgeFade(view);
+        }
+        [pending addObjectsFromArray:view.subviews];
+    }
+}
+
+static void BHTRefreshDimInWindows(void) {
+    for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow* window in ((UIWindowScene*)scene).windows) {
+            BHTRefreshDimInView(window);
+        }
+    }
+}
+
+// The app reloads its colors as part of the switch, and views can still report
+// the previous appearance at that point, so the setter hooks let them through.
+// Refresh once the switch has settled; the delayed pass covers animated ones.
+static void BHTScheduleDimRefresh(void) {
+    static BOOL scheduled = NO;
+    if (scheduled || !BHTDimThemeEnabled()) return;
+    scheduled = YES;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BHTRefreshDimInWindows();
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        scheduled = NO;
+        BHTRefreshDimInWindows();
+    });
+}
+
+%hook T1ColorSettings
+
++ (void)traitCollectionDidChange {
+    %orig;
+    BHTScheduleDimRefresh();
+}
+
++ (void)_t1_updateOverrideUserInterfaceStyle {
+    %orig;
+    BHTScheduleDimRefresh();
 }
 
 %end
