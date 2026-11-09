@@ -159,6 +159,8 @@ jobs:
           cd ${{ github.workspace }}/main
           sed -i '' "s/^TARGET.*$/TARGET := iphone:clang:${{ inputs.sdk_version }}:${{ inputs.target_version }}/" Makefile
           ./build.sh --${{ inputs.deploy_format }}
+          # Later steps pick the newest file in packages/; never let that be the input IPA.
+          rm -f packages/com.atebits.Tweetie2.ipa
         env:
           THEOS: ${{ github.workspace }}/theos
           BUILD_DIR: ${{ github.workspace }}/ffmpeg-build
