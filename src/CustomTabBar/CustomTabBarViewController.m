@@ -103,20 +103,12 @@ static NSString* const kGridFooterID = @"gridFooter";
 #pragma mark - UI Setup
 
 - (void)setupSaveButton {
-    // A custom view, because the navigation bar's own styling overrides the
-    // colors of a regular bar item and left it unreadable on Dim's background.
-    UIButton* saveButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [saveButton setTitle:[[BHTBundle sharedBundle] localizedStringForKey:@"SAVE"]
-                forState:UIControlStateNormal];
-    [saveButton setTitleColor:CurrentAccentColor() forState:UIControlStateNormal];
-    [saveButton setTitleColor:CustomTabBarTitleColor() forState:UIControlStateDisabled];
-    saveButton.titleLabel.font = [TwitterChirpFont(TwitterFontStyleSemibold) fontWithSize:17];
-    [saveButton addTarget:self
-                   action:@selector(saveButtonTapped)
-         forControlEvents:UIControlEventTouchUpInside];
-    [saveButton sizeToFit];
+    UIBarButtonItem* saveButton = [[UIBarButtonItem alloc]
+        initWithBarButtonSystemItem:UIBarButtonSystemItemSave
+                             target:self
+                             action:@selector(saveButtonTapped)];
+    self.navigationItem.rightBarButtonItem = saveButton;
     saveButton.enabled = NO;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:saveButton];
 }
 
 - (void)setupGridView {
@@ -251,8 +243,7 @@ static NSString* const kGridFooterID = @"gridFooter";
 }
 
 - (void)updateSaveButtonState {
-    // A bar item doesn't forward its enabled state to a custom view.
-    ((UIButton*)self.navigationItem.rightBarButtonItem.customView).enabled = self.hasChanges;
+    self.navigationItem.rightBarButtonItem.enabled = self.hasChanges;
 }
 
 #pragma mark - Save / Reset

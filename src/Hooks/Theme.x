@@ -253,17 +253,25 @@ static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     }
 }
 
-static UIColor* BHTDimFadeGradientColor(UIColor* color, UITraitCollection* traits) {
-    UIColor* dim = BHTDimScrollEdgeColor(color, traits);
-    if (dim || !BHTDimThemeEnabled() ||
-        traits.userInterfaceStyle != UIUserInterfaceStyleDark) return dim;
+// Reads the CGColor directly: going through UIColor resolution would hit the
+// Dim hooks above, which turn opaque black into a navy this filter rejects.
+// Transparent stops are recolored too, since their RGB still shows along the fade.
+static UIColor* BHTDimFadeGradientColor(CGColorRef color, UITraitCollection* traits) {
+    if (!BHTDimThemeEnabled() || traits.userInterfaceStyle != UIUserInterfaceStyleDark) {
+        return nil;
+    }
 
-    // A transparent stop still contributes its RGB along the fade, so a
-    // transparent black one would leave a dark band over the Dim background.
-    CGFloat red = 0, green = 0, blue = 0, alpha = 0;
-    if (![color getRed:&red green:&green blue:&blue alpha:&alpha] || alpha > 0.01 ||
-        MAX(red, MAX(green, blue)) > 0.25 || fabs(blue - 43.0 / 255.0) < 0.002) return nil;
-    return [BHTDimBackgroundColor() colorWithAlphaComponent:0];
+    size_t count = CGColorGetNumberOfComponents(color);
+    const CGFloat* components = CGColorGetComponents(color);
+    if (!components || (count != 2 && count != 4)) return nil;
+
+    CGFloat red = components[0];
+    CGFloat green = count == 4 ? components[1] : red;
+    CGFloat blue = count == 4 ? components[2] : red;
+    CGFloat alpha = components[count - 1];
+    CGFloat maxComponent = MAX(red, MAX(green, blue));
+    if (maxComponent > 0.25 || maxComponent - MIN(red, MIN(green, blue)) > 0.04) return nil;
+    return [BHTDimBackgroundColor() colorWithAlphaComponent:alpha];
 }
 
 static BOOL BHTIsDimFadeView(UIView* view) {
@@ -293,8 +301,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
     BOOL changed = NO;
     for (id entry in colors) {
         CGColorRef cgColor = (__bridge CGColorRef)entry;
-        UIColor* dim = BHTDimFadeGradientColor([UIColor colorWithCGColor:cgColor],
-                                               fade.traitCollection);
+        UIColor* dim = BHTDimFadeGradientColor(cgColor, fade.traitCollection);
         [mapped addObject:dim ? (__bridge id)dim.CGColor : entry];
         changed |= dim != nil;
     }
@@ -317,8 +324,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 
     NSMutableArray* mapped = [NSMutableArray arrayWithCapacity:colors.count];
     for (id entry in colors) {
-        UIColor* dim = BHTDimFadeGradientColor(
-            [UIColor colorWithCGColor:(__bridge CGColorRef)entry], owner.traitCollection);
+        UIColor* dim = BHTDimFadeGradientColor((__bridge CGColorRef)entry, owner.traitCollection);
         [mapped addObject:dim ? (__bridge id)dim.CGColor : entry];
     }
     %orig(mapped);
@@ -775,6 +781,46 @@ static UIColor* BHTCurrentPaletteColor(id<BHTDimTextPalette> palette, UIColor* c
     return reloaded ?: fallback;
 }
 
+static id<BHTDimTextPalette> BHTCurrentTextPalette(void) {
+    id info = [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
+    return info ? ((id (*)(id, SEL))objc_msgSend)(info, @selector(colorPalette)) : nil;
+}
+
+// X's tab customization screen leaves its disabled Save button nearly invisible
+// on the Dim background, so give the disabled state the regular text color.
+static void BHTApplyDisabledBarButtonTextColor(UIViewController* controller) {
+    UIColor* textColor = BHTDimThemeEnabled() ? BHTCurrentTextPalette().textColor : nil;
+    if (!textColor) return;
+
+    for (UIBarButtonItem* item in controller.navigationItem.rightBarButtonItems) {
+        if (![[item titleTextAttributesForState:UIControlStateDisabled]
+                [NSForegroundColorAttributeName] isEqual:textColor]) {
+            [item setTitleTextAttributes:@{NSForegroundColorAttributeName: textColor}
+                                forState:UIControlStateDisabled];
+        }
+        if ([item.customView isKindOfClass:UIButton.class]) {
+            UIButton* button = (UIButton*)item.customView;
+            if (![[button titleColorForState:UIControlStateDisabled] isEqual:textColor]) {
+                [button setTitleColor:textColor forState:UIControlStateDisabled];
+            }
+        }
+    }
+}
+
+%hook T1TabCustomizationViewController
+
+- (void)viewWillAppear:(BOOL)animated {
+    %orig;
+    BHTApplyDisabledBarButtonTextColor((UIViewController*)self);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    BHTApplyDisabledBarButtonTextColor((UIViewController*)self);
+}
+
+%end
+
 static char BHTSegmentedTabBarAppearanceKey;
 
 // The tab bar's style holds its title colors from when it was built, so they
@@ -790,9 +836,7 @@ static void BHTRefreshSegmentedTabBarColors(_TtC10TFNUISwift25LegacySegmentedTab
     if (!previous) return;
 
     _TtC10TFNUISwift26LegacySegmentedTabBarStyle* style = tabBar.style;
-    id info = [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
-    id<BHTDimTextPalette> palette = info
-        ? ((id (*)(id, SEL))objc_msgSend)(info, @selector(colorPalette)) : nil;
+    id<BHTDimTextPalette> palette = BHTCurrentTextPalette();
     if (!style || !palette) return;
 
     style.selectedTextColor =
