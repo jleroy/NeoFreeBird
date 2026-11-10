@@ -109,7 +109,7 @@ static NSString* const kGridFooterID = @"gridFooter";
     [saveButton setTitle:[[BHTBundle sharedBundle] localizedStringForKey:@"SAVE"]
                 forState:UIControlStateNormal];
     [saveButton setTitleColor:CurrentAccentColor() forState:UIControlStateNormal];
-    [saveButton setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateDisabled];
+    [saveButton setTitleColor:CustomTabBarTitleColor() forState:UIControlStateDisabled];
     saveButton.titleLabel.font = [TwitterChirpFont(TwitterFontStyleSemibold) fontWithSize:17];
     [saveButton addTarget:self
                    action:@selector(saveButtonTapped)

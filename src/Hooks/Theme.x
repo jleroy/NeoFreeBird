@@ -253,10 +253,7 @@ static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     }
 }
 
-// The composer's location row has its own fade, outside any ScrollEdgeTreatment.
 static BOOL BHTIsDimFadeView(UIView* view) {
-    Class tagLocationClass = NSClassFromString(@"TCRTagLocationView");
-    if (tagLocationClass && [view isKindOfClass:tagLocationClass]) return YES;
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
     return fadeClass && [view isKindOfClass:fadeClass] && BHTIsInsideScrollEdgeTreatment(view);
 }
@@ -265,8 +262,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
     if (!BHTIsDimFadeView(fade) || !BHTDimThemeEnabled() ||
         fade.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) return;
 
-    Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer")
-        ?: class_getInstanceVariable(object_getClass(fade), "_gradientLayer");
+    Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer");
     CAGradientLayer* gradient = gradientField ? object_getIvar(fade, gradientField) : nil;
     if (![gradient isKindOfClass:CAGradientLayer.class]) return;
 
@@ -320,15 +316,6 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 - (void)layoutSubviews {
     %orig;
     BHTApplyScrollEdgeFade(self);
-}
-
-%end
-
-%hook TCRTagLocationView
-
-- (void)layoutSubviews {
-    %orig;
-    BHTApplyScrollEdgeFade((UIView*)self);
 }
 
 %end
@@ -850,7 +837,6 @@ static void BHTRefreshDimInView(UIView* root) {
     Class searchBarClass = NSClassFromString(@"TFNSearchBar");
     Class blurClass = NSClassFromString(@"XDSBlur");
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
-    Class tagLocationClass = NSClassFromString(@"TCRTagLocationView");
     Class tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
 
     NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
@@ -867,8 +853,7 @@ static void BHTRefreshDimInView(UIView* root) {
             BHTApplyDimSearchPill((UISearchBar*)view);
         } else if (blurClass && [view isKindOfClass:blurClass]) {
             BHTApplyScrollEdgeBlur((XDSBlur*)view);
-        } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
-                   (tagLocationClass && [view isKindOfClass:tagLocationClass])) {
+        } else if (fadeClass && [view isKindOfClass:fadeClass]) {
             BHTApplyScrollEdgeFade(view);
         } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
             BHTRefreshSegmentedTabBarColors(
