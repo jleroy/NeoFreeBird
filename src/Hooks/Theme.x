@@ -253,7 +253,27 @@ static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     }
 }
 
+static UIColor* BHTDimFadeGradientColor(UIColor* color, UITraitCollection* traits) {
+    UIColor* dim = BHTDimScrollEdgeColor(color, traits);
+    if (dim || !BHTDimThemeEnabled() ||
+        traits.userInterfaceStyle != UIUserInterfaceStyleDark) return dim;
+
+    // A transparent stop still contributes its RGB along the fade, so a
+    // transparent black one would leave a dark band over the Dim background.
+    CGFloat red = 0, green = 0, blue = 0, alpha = 0;
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha] || alpha > 0.01 ||
+        MAX(red, MAX(green, blue)) > 0.25 || fabs(blue - 43.0 / 255.0) < 0.002) return nil;
+    return [BHTDimBackgroundColor() colorWithAlphaComponent:0];
+}
+
 static BOOL BHTIsDimFadeView(UIView* view) {
+    // TFNGradientView also darkens media overlays, so only match the composer's
+    // button bar, where it fades the scrolling buttons into the background.
+    Class gradientClass = NSClassFromString(@"TFNGradientView");
+    Class buttonBarClass = NSClassFromString(@"TFNButtonBarView");
+    if (gradientClass && buttonBarClass && [view isKindOfClass:gradientClass] &&
+        [view.superview isKindOfClass:buttonBarClass]) return YES;
+
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
     return fadeClass && [view isKindOfClass:fadeClass] && BHTIsInsideScrollEdgeTreatment(view);
 }
@@ -263,7 +283,8 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
         fade.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) return;
 
     Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer");
-    CAGradientLayer* gradient = gradientField ? object_getIvar(fade, gradientField) : nil;
+    CAGradientLayer* gradient = gradientField ? object_getIvar(fade, gradientField)
+                                              : (CAGradientLayer*)fade.layer;
     if (![gradient isKindOfClass:CAGradientLayer.class]) return;
 
     NSArray* colors = gradient.colors;
@@ -272,8 +293,8 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
     BOOL changed = NO;
     for (id entry in colors) {
         CGColorRef cgColor = (__bridge CGColorRef)entry;
-        UIColor* dim = BHTDimScrollEdgeColor([UIColor colorWithCGColor:cgColor],
-                                             fade.traitCollection);
+        UIColor* dim = BHTDimFadeGradientColor([UIColor colorWithCGColor:cgColor],
+                                               fade.traitCollection);
         [mapped addObject:dim ? (__bridge id)dim.CGColor : entry];
         changed |= dim != nil;
     }
@@ -283,7 +304,10 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 %hook CAGradientLayer
 
 - (void)setColors:(NSArray*)colors {
-    UIView* owner = (UIView*)self.superlayer.delegate;
+    // TFNGradientView is backed by the gradient layer itself.
+    UIView* owner = [(id)self.delegate isKindOfClass:NSClassFromString(@"TFNGradientView")]
+        ? (UIView*)self.delegate
+        : (UIView*)self.superlayer.delegate;
     if (![owner isKindOfClass:UIView.class] || !BHTIsDimFadeView(owner) ||
         !BHTDimThemeEnabled() ||
         owner.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
@@ -293,7 +317,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 
     NSMutableArray* mapped = [NSMutableArray arrayWithCapacity:colors.count];
     for (id entry in colors) {
-        UIColor* dim = BHTDimScrollEdgeColor(
+        UIColor* dim = BHTDimFadeGradientColor(
             [UIColor colorWithCGColor:(__bridge CGColorRef)entry], owner.traitCollection);
         [mapped addObject:dim ? (__bridge id)dim.CGColor : entry];
     }
@@ -316,6 +340,20 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 - (void)layoutSubviews {
     %orig;
     BHTApplyScrollEdgeFade(self);
+}
+
+%end
+
+%hook TFNGradientView
+
+- (void)layoutSubviews {
+    %orig;
+    BHTApplyScrollEdgeFade((UIView*)self);
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    BHTApplyScrollEdgeFade((UIView*)self);
 }
 
 %end
@@ -838,6 +876,7 @@ static void BHTRefreshDimInView(UIView* root) {
     Class blurClass = NSClassFromString(@"XDSBlur");
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
     Class tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
+    Class gradientClass = NSClassFromString(@"TFNGradientView");
 
     NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
     while (pending.count) {
@@ -853,7 +892,8 @@ static void BHTRefreshDimInView(UIView* root) {
             BHTApplyDimSearchPill((UISearchBar*)view);
         } else if (blurClass && [view isKindOfClass:blurClass]) {
             BHTApplyScrollEdgeBlur((XDSBlur*)view);
-        } else if (fadeClass && [view isKindOfClass:fadeClass]) {
+        } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
+                   (gradientClass && [view isKindOfClass:gradientClass])) {
             BHTApplyScrollEdgeFade(view);
         } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
             BHTRefreshSegmentedTabBarColors(
