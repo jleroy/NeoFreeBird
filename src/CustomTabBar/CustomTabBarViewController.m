@@ -107,6 +107,11 @@ static NSString* const kGridFooterID = @"gridFooter";
         initWithBarButtonSystemItem:UIBarButtonSystemItemSave
                              target:self
                              action:@selector(saveButtonTapped)];
+    // Explicit colors: the inherited ones can be unreadable on Dim's background.
+    [saveButton setTitleTextAttributes:@{NSForegroundColorAttributeName: CurrentAccentColor()}
+                              forState:UIControlStateNormal];
+    [saveButton setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor}
+                              forState:UIControlStateDisabled];
     self.navigationItem.rightBarButtonItem = saveButton;
     saveButton.enabled = NO;
 }

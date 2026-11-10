@@ -253,8 +253,16 @@ static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     }
 }
 
+// The composer's tool tray has its own fade view, outside any ScrollEdgeTreatment.
+static BOOL BHTIsDimFadeView(UIView* view) {
+    Class trayClass = NSClassFromString(@"_TtC13XDesignSystem22TrayScrollEdgeFadeView");
+    if (trayClass && [view isKindOfClass:trayClass]) return YES;
+    Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
+    return fadeClass && [view isKindOfClass:fadeClass] && BHTIsInsideScrollEdgeTreatment(view);
+}
+
 static void BHTApplyScrollEdgeFade(UIView* fade) {
-    if (!BHTIsInsideScrollEdgeTreatment(fade) || !BHTDimThemeEnabled() ||
+    if (!BHTIsDimFadeView(fade) || !BHTDimThemeEnabled() ||
         fade.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) return;
 
     Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer");
@@ -279,8 +287,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 
 - (void)setColors:(NSArray*)colors {
     UIView* owner = (UIView*)self.superlayer.delegate;
-    Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
-    if (![owner isKindOfClass:fadeClass] || !BHTIsInsideScrollEdgeTreatment(owner) ||
+    if (![owner isKindOfClass:UIView.class] || !BHTIsDimFadeView(owner) ||
         !BHTDimThemeEnabled() ||
         owner.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
         %orig;
@@ -312,6 +319,15 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 - (void)layoutSubviews {
     %orig;
     BHTApplyScrollEdgeFade(self);
+}
+
+%end
+
+%hook _TtC13XDesignSystem22TrayScrollEdgeFadeView
+
+- (void)layoutSubviews {
+    %orig;
+    BHTApplyScrollEdgeFade((UIView*)self);
 }
 
 %end
@@ -714,6 +730,53 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
 
 %end
 
+@protocol BHTDimTextPalette <NSObject>
+- (UIColor*)textColor;
+- (UIColor*)textDetailsColor;
+- (UIColor*)dynamicColorWithIdentifier:(id)identifier;
+@end
+
+@interface _TtC10TFNUISwift25LegacySegmentedTabBarView (BHTDimRefresh)
+- (void)reloadVisibleTabs;
+@end
+
+static UIColor* BHTCurrentPaletteColor(id<BHTDimTextPalette> palette, UIColor* color,
+                                       UIColor* fallback) {
+    id identifier = [color respondsToSelector:@selector(tfn_dynamicColorIdentifier)]
+        ? [color tfn_dynamicColorIdentifier] : nil;
+    UIColor* reloaded = identifier && [palette respondsToSelector:@selector(dynamicColorWithIdentifier:)]
+        ? [palette dynamicColorWithIdentifier:identifier] : nil;
+    return reloaded ?: fallback;
+}
+
+static char BHTSegmentedTabBarAppearanceKey;
+
+// The tab bar's style holds its title colors from when it was built, so they
+// have to be fetched again from the new palette after an appearance change.
+static void BHTRefreshSegmentedTabBarColors(_TtC10TFNUISwift25LegacySegmentedTabBarView* tabBar) {
+    if (!BHTDimThemeEnabled()) return;
+
+    NSNumber* current = @(tabBar.traitCollection.userInterfaceStyle);
+    NSNumber* previous = objc_getAssociatedObject(tabBar, &BHTSegmentedTabBarAppearanceKey);
+    if ([previous isEqualToNumber:current]) return;
+    objc_setAssociatedObject(tabBar, &BHTSegmentedTabBarAppearanceKey, current,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!previous) return;
+
+    _TtC10TFNUISwift26LegacySegmentedTabBarStyle* style = tabBar.style;
+    id info = [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
+    id<BHTDimTextPalette> palette = info
+        ? ((id (*)(id, SEL))objc_msgSend)(info, @selector(colorPalette)) : nil;
+    if (!style || !palette) return;
+
+    style.selectedTextColor =
+        BHTCurrentPaletteColor(palette, style.selectedTextColor, palette.textColor);
+    style.deselectedTextColor =
+        BHTCurrentPaletteColor(palette, style.deselectedTextColor, palette.textDetailsColor);
+    tabBar.style = style;
+    [tabBar reloadVisibleTabs];
+}
+
 %hook _TtC10TFNUISwift26LegacySegmentedTabBarStyle
 
 - (void)setHighlightBarColor:(UIColor*)color {
@@ -733,6 +796,13 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
         style.highlightBarColor = CurrentAccentColor();
     }
     %orig(style);
+}
+
+- (void)didMoveToWindow {
+    %orig;
+    if (self.window) {
+        BHTRefreshSegmentedTabBarColors(self);
+    }
 }
 
 %end
@@ -779,6 +849,8 @@ static void BHTRefreshDimInView(UIView* root) {
     Class searchBarClass = NSClassFromString(@"TFNSearchBar");
     Class blurClass = NSClassFromString(@"XDSBlur");
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
+    Class trayFadeClass = NSClassFromString(@"_TtC13XDesignSystem22TrayScrollEdgeFadeView");
+    Class tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
 
     NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
     while (pending.count) {
@@ -794,8 +866,12 @@ static void BHTRefreshDimInView(UIView* root) {
             BHTApplyDimSearchPill((UISearchBar*)view);
         } else if (blurClass && [view isKindOfClass:blurClass]) {
             BHTApplyScrollEdgeBlur((XDSBlur*)view);
-        } else if (fadeClass && [view isKindOfClass:fadeClass]) {
+        } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
+                   (trayFadeClass && [view isKindOfClass:trayFadeClass])) {
             BHTApplyScrollEdgeFade(view);
+        } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
+            BHTRefreshSegmentedTabBarColors(
+                (_TtC10TFNUISwift25LegacySegmentedTabBarView*)view);
         }
         [pending addObjectsFromArray:view.subviews];
     }
