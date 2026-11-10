@@ -586,6 +586,25 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
     return color;
 }
 
+static UIColor* BHTCurrentPaletteBackgroundColor(void);
+
+// Some surfaces, such as thread replies and the Message button, get a flat copy
+// of the Dim color: nothing was saved for it and the app can't reload it. Use
+// the palette's color, whose identifier lets the app handle later switches.
+static void BHTReplaceStaleDimBackground(UIView* view) {
+    UIColor* current = view.backgroundColor;
+    if (!current || !BHTDimThemeEnabled() ||
+        !BHTColorIsDimShade([current resolvedColorWithTraitCollection:view.traitCollection])) {
+        return;
+    }
+    // During the switch the palette can still be the Dark one; the delayed
+    // refresh retries once it has settled.
+    UIColor* background = BHTCurrentPaletteBackgroundColor();
+    if (background && !BHTColorIsDimShade(background)) {
+        view.backgroundColor = background;
+    }
+}
+
 // Brings one view's background in line with its current appearance: applies
 // Dim in Dark, and puts back the color Dim replaced in Light.
 static void BHTRefreshDimBackground(UIView* view) {
@@ -598,7 +617,10 @@ static void BHTRefreshDimBackground(UIView* view) {
     }
 
     id saved = objc_getAssociatedObject(view, &BHTDimOriginalBackgroundKey);
-    if (!saved) return;
+    if (!saved) {
+        BHTReplaceStaleDimBackground(view);
+        return;
+    }
     view.backgroundColor = [saved isKindOfClass:UIColor.class] ? saved : nil;
     objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, nil,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -766,6 +788,7 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
 - (UIColor*)textColor;
 - (UIColor*)textDetailsColor;
 - (UIColor*)dynamicColorWithIdentifier:(id)identifier;
+- (UIColor*)backgroundColor;
 @end
 
 @interface _TtC10TFNUISwift25LegacySegmentedTabBarView (BHTDimRefresh)
@@ -784,6 +807,10 @@ static UIColor* BHTCurrentPaletteColor(id<BHTDimTextPalette> palette, UIColor* c
 static id<BHTDimTextPalette> BHTCurrentTextPalette(void) {
     id info = [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
     return info ? ((id (*)(id, SEL))objc_msgSend)(info, @selector(colorPalette)) : nil;
+}
+
+static UIColor* BHTCurrentPaletteBackgroundColor(void) {
+    return BHTCurrentTextPalette().backgroundColor;
 }
 
 // X's tab customization screen leaves its disabled Save button nearly invisible
