@@ -787,21 +787,21 @@ static id<BHTDimTextPalette> BHTCurrentTextPalette(void) {
 }
 
 // X's tab customization screen leaves its disabled Save button nearly invisible
-// on the Dim background, so give the disabled state the regular text color.
+// on the Dim background, so give the disabled state the secondary text color.
 static void BHTApplyDisabledBarButtonTextColor(UIViewController* controller) {
-    UIColor* textColor = BHTDimThemeEnabled() ? BHTCurrentTextPalette().textColor : nil;
-    if (!textColor) return;
+    UIColor* disabledColor = BHTDimThemeEnabled() ? BHTCurrentTextPalette().textDetailsColor : nil;
+    if (!disabledColor) return;
 
     for (UIBarButtonItem* item in controller.navigationItem.rightBarButtonItems) {
         if (![[item titleTextAttributesForState:UIControlStateDisabled]
-                [NSForegroundColorAttributeName] isEqual:textColor]) {
-            [item setTitleTextAttributes:@{NSForegroundColorAttributeName: textColor}
+                [NSForegroundColorAttributeName] isEqual:disabledColor]) {
+            [item setTitleTextAttributes:@{NSForegroundColorAttributeName: disabledColor}
                                 forState:UIControlStateDisabled];
         }
         if ([item.customView isKindOfClass:UIButton.class]) {
             UIButton* button = (UIButton*)item.customView;
-            if (![[button titleColorForState:UIControlStateDisabled] isEqual:textColor]) {
-                [button setTitleColor:textColor forState:UIControlStateDisabled];
+            if (![[button titleColorForState:UIControlStateDisabled] isEqual:disabledColor]) {
+                [button setTitleColor:disabledColor forState:UIControlStateDisabled];
             }
         }
     }
