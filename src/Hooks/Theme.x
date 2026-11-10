@@ -253,10 +253,10 @@ static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
     }
 }
 
-// The composer's tool tray has its own fade view, outside any ScrollEdgeTreatment.
+// The composer's location row has its own fade, outside any ScrollEdgeTreatment.
 static BOOL BHTIsDimFadeView(UIView* view) {
-    Class trayClass = NSClassFromString(@"_TtC13XDesignSystem22TrayScrollEdgeFadeView");
-    if (trayClass && [view isKindOfClass:trayClass]) return YES;
+    Class tagLocationClass = NSClassFromString(@"TCRTagLocationView");
+    if (tagLocationClass && [view isKindOfClass:tagLocationClass]) return YES;
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
     return fadeClass && [view isKindOfClass:fadeClass] && BHTIsInsideScrollEdgeTreatment(view);
 }
@@ -265,7 +265,8 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
     if (!BHTIsDimFadeView(fade) || !BHTDimThemeEnabled() ||
         fade.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) return;
 
-    Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer");
+    Ivar gradientField = class_getInstanceVariable(object_getClass(fade), "gradientLayer")
+        ?: class_getInstanceVariable(object_getClass(fade), "_gradientLayer");
     CAGradientLayer* gradient = gradientField ? object_getIvar(fade, gradientField) : nil;
     if (![gradient isKindOfClass:CAGradientLayer.class]) return;
 
@@ -323,7 +324,7 @@ static void BHTApplyScrollEdgeFade(UIView* fade) {
 
 %end
 
-%hook _TtC13XDesignSystem22TrayScrollEdgeFadeView
+%hook TCRTagLocationView
 
 - (void)layoutSubviews {
     %orig;
@@ -849,7 +850,7 @@ static void BHTRefreshDimInView(UIView* root) {
     Class searchBarClass = NSClassFromString(@"TFNSearchBar");
     Class blurClass = NSClassFromString(@"XDSBlur");
     Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
-    Class trayFadeClass = NSClassFromString(@"_TtC13XDesignSystem22TrayScrollEdgeFadeView");
+    Class tagLocationClass = NSClassFromString(@"TCRTagLocationView");
     Class tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
 
     NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
@@ -867,7 +868,7 @@ static void BHTRefreshDimInView(UIView* root) {
         } else if (blurClass && [view isKindOfClass:blurClass]) {
             BHTApplyScrollEdgeBlur((XDSBlur*)view);
         } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
-                   (trayFadeClass && [view isKindOfClass:trayFadeClass])) {
+                   (tagLocationClass && [view isKindOfClass:tagLocationClass])) {
             BHTApplyScrollEdgeFade(view);
         } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
             BHTRefreshSegmentedTabBarColors(

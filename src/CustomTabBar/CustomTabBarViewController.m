@@ -103,17 +103,20 @@ static NSString* const kGridFooterID = @"gridFooter";
 #pragma mark - UI Setup
 
 - (void)setupSaveButton {
-    UIBarButtonItem* saveButton = [[UIBarButtonItem alloc]
-        initWithBarButtonSystemItem:UIBarButtonSystemItemSave
-                             target:self
-                             action:@selector(saveButtonTapped)];
-    // Explicit colors: the inherited ones can be unreadable on Dim's background.
-    [saveButton setTitleTextAttributes:@{NSForegroundColorAttributeName: CurrentAccentColor()}
-                              forState:UIControlStateNormal];
-    [saveButton setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.secondaryLabelColor}
-                              forState:UIControlStateDisabled];
-    self.navigationItem.rightBarButtonItem = saveButton;
+    // A custom view, because the navigation bar's own styling overrides the
+    // colors of a regular bar item and left it unreadable on Dim's background.
+    UIButton* saveButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [saveButton setTitle:[[BHTBundle sharedBundle] localizedStringForKey:@"SAVE"]
+                forState:UIControlStateNormal];
+    [saveButton setTitleColor:CurrentAccentColor() forState:UIControlStateNormal];
+    [saveButton setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateDisabled];
+    saveButton.titleLabel.font = [TwitterChirpFont(TwitterFontStyleSemibold) fontWithSize:17];
+    [saveButton addTarget:self
+                   action:@selector(saveButtonTapped)
+         forControlEvents:UIControlEventTouchUpInside];
+    [saveButton sizeToFit];
     saveButton.enabled = NO;
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:saveButton];
 }
 
 - (void)setupGridView {
@@ -248,7 +251,8 @@ static NSString* const kGridFooterID = @"gridFooter";
 }
 
 - (void)updateSaveButtonState {
-    self.navigationItem.rightBarButtonItem.enabled = self.hasChanges;
+    // A bar item doesn't forward its enabled state to a custom view.
+    ((UIButton*)self.navigationItem.rightBarButtonItem.customView).enabled = self.hasChanges;
 }
 
 #pragma mark - Save / Reset
