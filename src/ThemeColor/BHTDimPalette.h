@@ -46,6 +46,13 @@ UIColor* _Nullable BHTDimReplacementForResolvedColor(UIColor* resolved);
 BOOL BHTColorIsCloseToWhite(UIColor* _Nullable color);
 
 /**
+ * Returns dim carrying source's dynamic color identifier, if it has one.
+ * TFNDynamicColorManager uses that identifier to reload a color from the new
+ * palette on an appearance change, so an untagged Dim color would stay navy.
+ */
+UIColor* BHTDimColorPreservingIdentifier(UIColor* dim, UIColor* _Nullable source);
+
+/**
  * Wraps a live TAEColorPalette-conforming object, substituting Dim's navy
  * background family for the handful of properties it overrides and
  * forwarding everything else (text, links, accents, dividers) untouched to

@@ -525,7 +525,7 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
     UIColor* resolved = [color resolvedColorWithTraitCollection:view.traitCollection];
     UIColor* replacement = BHTDimReplacementForResolvedColor(resolved);
     if (replacement) {
-        return replacement;
+        return BHTDimColorPreservingIdentifier(replacement, color);
     }
 
     // The UIColor hooks may already have resolved a catalog background to a
@@ -561,7 +561,10 @@ static void BHTRefreshDimBackground(UIView* view) {
 - (void)setBackgroundColor:(UIColor*)color {
     UIColor* normalized = BHTDimNormalizedViewBackground(self, color);
     if (normalized != color) {
-        BHTSaveDimOriginalBackground(self, color);
+        // A color that's already Dim has nothing worth restoring in Light.
+        if (!BHTColorIsDimShade(color)) {
+            BHTSaveDimOriginalBackground(self, color);
+        }
     } else if (objc_getAssociatedObject(self, &BHTDimOriginalBackgroundKey) &&
                !BHTColorIsDimShade(color)) {
         // The app assigned a new color of its own, which supersedes the saved one.
