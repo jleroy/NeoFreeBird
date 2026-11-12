@@ -588,48 +588,55 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
 
 static UIColor* BHTCurrentPaletteBackgroundColor(void);
 
-// Some surfaces, such as thread replies and the Message button, get a flat copy
-// of the Dim color: nothing was saved for it and the app can't reload it. Use
-// the palette's color, whose identifier lets the app handle later switches.
-static void BHTReplaceStaleDimBackground(UIView* view) {
-    UIColor* current = view.backgroundColor;
-    if (!current || !BHTDimThemeEnabled() ||
-        !BHTColorIsDimShade([current resolvedColorWithTraitCollection:view.traitCollection])) {
-        return;
-    }
-    // During the switch the palette can still be the Dark one; the delayed
-    // refresh retries once it has settled.
+// The app switches its palette before every view reports the new appearance:
+// thread replies already on screen can still claim Dark once the app is Light.
+// Returns the Light background when the palette has switched, nil otherwise.
+static UIColor* BHTLightPaletteBackgroundColor(void) {
+    if (!BHTDimThemeEnabled()) return nil;
     UIColor* background = BHTCurrentPaletteBackgroundColor();
-    if (background && !BHTColorIsDimShade(background)) {
-        view.backgroundColor = background;
-    }
+    return background && !BHTColorIsDimShade(background) ? background : nil;
 }
 
-// Brings one view's background in line with its current appearance: applies
-// Dim in Dark, and puts back the color Dim replaced in Light.
+// Brings one view's background in line with the app's appearance: applies Dim
+// in Dark, and in Light puts back the color Dim replaced. Some surfaces, such as
+// thread replies, hold a flat copy of the Dim color with nothing saved; they get
+// the palette's color, whose identifier lets the app handle later switches.
 static void BHTRefreshDimBackground(UIView* view) {
+    UIColor* current = view.backgroundColor;
     if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
-        UIColor* current = view.backgroundColor;
-        if (current && BHTDimNormalizedViewBackground(view, current) != current) {
-            view.backgroundColor = current;
+        UIColor* normalized = current ? BHTDimNormalizedViewBackground(view, current) : nil;
+        if (!BHTColorIsDimShade(normalized) || !BHTLightPaletteBackgroundColor()) {
+            if (normalized != current) view.backgroundColor = current;
+            return;
         }
-        return;
     }
 
     id saved = objc_getAssociatedObject(view, &BHTDimOriginalBackgroundKey);
-    if (!saved) {
-        BHTReplaceStaleDimBackground(view);
+    if (saved) {
+        view.backgroundColor = [saved isKindOfClass:UIColor.class] ? saved : nil;
+        objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, nil,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return;
     }
-    view.backgroundColor = [saved isKindOfClass:UIColor.class] ? saved : nil;
-    objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, nil,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    if (current && BHTColorIsDimShade([current resolvedColorWithTraitCollection:view.traitCollection])) {
+        // During the switch the palette can still be the Dark one; the delayed
+        // refresh retries once it has settled.
+        UIColor* background = BHTLightPaletteBackgroundColor();
+        if (background) view.backgroundColor = background;
+    }
 }
 
 %hook UIView
 
 - (void)setBackgroundColor:(UIColor*)color {
     UIColor* normalized = BHTDimNormalizedViewBackground(self, color);
+    if (BHTColorIsDimShade(normalized)) {
+        // A view still reporting Dark after the app switched to Light: a Dim
+        // color takes the Light background, any other color stays as assigned.
+        UIColor* light = BHTLightPaletteBackgroundColor();
+        if (light) normalized = BHTColorIsDimShade(color) ? light : color;
+    }
     if (normalized != color) {
         // A color that's already Dim has nothing worth restoring in Light.
         if (!BHTColorIsDimShade(color)) {
