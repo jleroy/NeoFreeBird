@@ -972,35 +972,6 @@ static void BHTRefreshDimInView(UIView* root) {
     }
 }
 
-// Cells already on screen, such as thread replies, can take their new
-// appearance after the window-wide refresh has run, and would keep Dim until
-// recreated. Refresh a cell's subviews once its own appearance has changed.
-static void BHTRefreshDimInCell(UIView* cell, UITraitCollection* previous) {
-    if (!BHTDimThemeEnabled() || !cell.window ||
-        ![cell.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previous]) {
-        return;
-    }
-    BHTRefreshDimInView(cell);
-}
-
-%hook UITableViewCell
-
-- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
-    %orig;
-    BHTRefreshDimInCell(self, previousTraitCollection);
-}
-
-%end
-
-%hook UICollectionViewCell
-
-- (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
-    %orig;
-    BHTRefreshDimInCell(self, previousTraitCollection);
-}
-
-%end
-
 static void BHTRefreshDimInWindows(void) {
     for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class]) continue;
