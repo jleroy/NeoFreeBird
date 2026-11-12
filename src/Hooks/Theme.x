@@ -691,15 +691,6 @@ static void BHTApplyDimSolidColorView(UIView* view) {
 
 %end
 
-void BHTApplyDimToVideoControls(UIView* controlsView) {
-    if (!BHTDimThemeEnabled() || !controlsView ||
-        controlsView.traitCollection.userInterfaceStyle != UIUserInterfaceStyleDark) {
-        return;
-    }
-
-    controlsView.superview.backgroundColor = BHTDimElevatedBackgroundColor();
-}
-
 // X 12.9's Explore search pill is a background image owned by UISearchBar's
 // private _UITextFieldImageBackgroundView. It never asks TAEColorPalette for
 // pillDefaultBackgroundColor, so recolor it through UISearchBar's public image
