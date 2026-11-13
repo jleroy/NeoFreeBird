@@ -235,9 +235,25 @@ static BOOL BHTIsScrollEdgeBlurTintView(UIView* view) {
 // remember the color it replaced. NSNull stands for a nil background.
 static char BHTDimOriginalBackgroundKey;
 
+// Views Dim has touched, on screen or not. Only views in a window can be
+// walked, and another tab's list is not, so a switch refreshes these as well.
+static NSHashTable<UIView*>* BHTDimTouchedViews(void) {
+    static NSHashTable<UIView*>* views;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        views = [NSHashTable weakObjectsHashTable];
+    });
+    return views;
+}
+
+static void BHTDimRememberView(UIView* view) {
+    if (view) [BHTDimTouchedViews() addObject:view];
+}
+
 static void BHTSaveDimOriginalBackground(UIView* view, UIColor* original) {
     objc_setAssociatedObject(view, &BHTDimOriginalBackgroundKey, original ?: (id)NSNull.null,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    BHTDimRememberView(view);
 }
 
 static void BHTApplyScrollEdgeBlur(XDSBlur* blur) {
@@ -394,6 +410,10 @@ static void BHTApplyDimScrollEdgeChildren(UIView* treatment) {
 // option -- so Dim comes back by intercepting Dark's palette at its one
 // choke point and swapping in a proxy that recolors just the background
 // family, leaving Light untouched.
+// Set once the Dim palette has been handed out, so the restore paths know
+// there may be Dim colors to undo even after the setting is turned off.
+static BOOL BHTDimHasRendered;
+
 %hook TAETwitterColorPaletteSettingInfo
 
 - (id<TAEColorPalette>)colorPalette {
@@ -408,6 +428,7 @@ static void BHTApplyDimScrollEdgeChildren(UIView* treatment) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if (self.isDark && BHTDimThemeEnabled()) {
+        BHTDimHasRendered = YES;
         return (id<TAEColorPalette>)[BHTDimPaletteProxy proxyWithPalette:realPalette];
     }
     return realPalette;
@@ -518,15 +539,35 @@ static UIColor* BHTDimSystemColor(UIColor* original, UIColor* (*dimShade)(void))
 // recolor them. Normalize only UIView background assignments, and repeat the
 // normalization when a view enters a window so colors assigned before traits
 // were available are covered as well.
-static BOOL BHTColorIsDimShade(UIColor* color) {
+typedef NS_ENUM(NSInteger, BHTDimShadeKind) {
+    BHTDimShadeNone,
+    BHTDimShadeBackground,
+    BHTDimShadeElevated,
+    BHTDimShadeHighlight,
+};
+
+static BHTDimShadeKind BHTDimShadeOfColor(UIColor* color) {
     CGFloat red = 0, green = 0, blue = 0, alpha = 0;
-    if (![color getRed:&red green:&green blue:&blue alpha:&alpha] || alpha < 0.99) return NO;
-    return (fabs(red - 21.0 / 255.0) < 0.002 && fabs(green - 32.0 / 255.0) < 0.002 &&
-            fabs(blue - 43.0 / 255.0) < 0.002) ||
-           (fabs(red - 25.0 / 255.0) < 0.002 && fabs(green - 39.0 / 255.0) < 0.002 &&
-            fabs(blue - 52.0 / 255.0) < 0.002) ||
-           (fabs(red - 28.0 / 255.0) < 0.002 && fabs(green - 40.0 / 255.0) < 0.002 &&
-            fabs(blue - 54.0 / 255.0) < 0.002);
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha] || alpha < 0.99) {
+        return BHTDimShadeNone;
+    }
+    if (fabs(red - 21.0 / 255.0) < 0.002 && fabs(green - 32.0 / 255.0) < 0.002 &&
+        fabs(blue - 43.0 / 255.0) < 0.002) {
+        return BHTDimShadeBackground;
+    }
+    if (fabs(red - 25.0 / 255.0) < 0.002 && fabs(green - 39.0 / 255.0) < 0.002 &&
+        fabs(blue - 52.0 / 255.0) < 0.002) {
+        return BHTDimShadeElevated;
+    }
+    if (fabs(red - 28.0 / 255.0) < 0.002 && fabs(green - 40.0 / 255.0) < 0.002 &&
+        fabs(blue - 54.0 / 255.0) < 0.002) {
+        return BHTDimShadeHighlight;
+    }
+    return BHTDimShadeNone;
+}
+
+static BOOL BHTColorIsDimShade(UIColor* color) {
+    return BHTDimShadeOfColor(color) != BHTDimShadeNone;
 }
 
 static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
@@ -556,19 +597,22 @@ static UIColor* BHTDimNormalizedViewBackground(UIView* view, UIColor* color) {
     return color;
 }
 
-static UIColor* BHTCurrentPaletteBackgroundColor(void);
+static UIColor* BHTCurrentPaletteColorForDimShade(BHTDimShadeKind shade);
 
-// The app switches its palette before every view reports the new appearance:
-// thread replies already on screen can still claim Dark once the app is Light.
-// Returns the Light background when the palette has switched, nil otherwise.
-// This runs on hot paths, so answer from the palette's isDark flag: reading the
-// Dark palette would build a Dim proxy on every call just to say no.
-static UIColor* BHTLightPaletteBackgroundColor(void) {
-    if (!BHTDimThemeEnabled()) return nil;
+// When the app is not rendering Dim -- Light, or Dark with Dim turned off --
+// returns the palette color that stands in for a Dim shade; nil otherwise.
+// The app switches its palette before every view reports the new appearance
+// (thread replies still on screen can claim Dark once the app is Light), so
+// this asks the palette, not the view. It runs on hot paths, so it answers from
+// the palette's isDark flag: reading the Dark palette would build a Dim proxy
+// on every call just to say no.
+static UIColor* BHTPaletteReplacementForDimShade(UIColor* color) {
+    BHTDimShadeKind shade = BHTDimShadeOfColor(color);
+    if (shade == BHTDimShadeNone) return nil;
     TAETwitterColorPaletteSettingInfo* info =
         [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
-    if (!info || info.isDark) return nil;
-    return BHTCurrentPaletteBackgroundColor();
+    if (!info || (info.isDark && BHTDimThemeEnabled())) return nil;
+    return BHTCurrentPaletteColorForDimShade(shade);
 }
 
 // A dynamic color reads as whatever the current appearance resolves it to, so
@@ -584,17 +628,19 @@ static BOOL BHTColorIsFlatDimShade(UIColor* color) {
 }
 
 // Brings one view's background in line with the app's appearance: applies Dim
-// in Dark, and in Light puts back the color Dim replaced. Some surfaces, such as
-// thread replies, hold a flat copy of the Dim color with nothing saved; they get
-// the palette's color, whose identifier lets the app handle later switches.
+// while the app renders it, and otherwise puts back the color Dim replaced.
+// Some surfaces, such as thread replies, hold a flat copy of the Dim color with
+// nothing saved; they get the palette's color, whose identifier lets the app
+// handle later switches. Views off screen during a switch (another tab's list)
+// are caught here when they come back into a window.
 static void BHTRefreshDimBackground(UIView* view) {
-    // Turning Dim off restarts the app, so nothing is ever saved while it's off.
-    if (!BHTDimThemeEnabled()) return;
+    // Until Dim has rendered in this process, there is nothing to undo.
+    if (!BHTDimThemeEnabled() && !BHTDimHasRendered) return;
 
     UIColor* current = view.backgroundColor;
     if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         UIColor* normalized = current ? BHTDimNormalizedViewBackground(view, current) : nil;
-        if (!BHTColorIsDimShade(normalized) || !BHTLightPaletteBackgroundColor()) {
+        if (!BHTPaletteReplacementForDimShade(normalized)) {
             if (normalized != current) view.backgroundColor = current;
             return;
         }
@@ -608,24 +654,22 @@ static void BHTRefreshDimBackground(UIView* view) {
         return;
     }
 
-    if (current && BHTColorIsDimShade([current resolvedColorWithTraitCollection:view.traitCollection])) {
-        // During the switch the palette can still be the Dark one; the delayed
-        // refresh retries once it has settled.
-        UIColor* background = BHTLightPaletteBackgroundColor();
-        if (background) view.backgroundColor = background;
-    }
+    // During a switch the palette can still be the previous one; the delayed
+    // refresh retries once it has settled.
+    UIColor* replacement = BHTPaletteReplacementForDimShade(
+        [current resolvedColorWithTraitCollection:view.traitCollection]);
+    if (replacement) view.backgroundColor = replacement;
 }
 
 %hook UIView
 
 - (void)setBackgroundColor:(UIColor*)color {
     UIColor* normalized = BHTDimNormalizedViewBackground(self, color);
-    if (BHTColorIsDimShade(normalized)) {
-        // A view still reporting Dark after the app switched to Light: a Dim
-        // color takes the Light background, any other color stays as assigned.
-        UIColor* light = BHTLightPaletteBackgroundColor();
-        if (light) normalized = BHTColorIsDimShade(color) ? light : color;
-    }
+    // The app is not rendering Dim, or the view still reports Dark after the
+    // switch: a Dim color takes the palette's color, any other stays as assigned.
+    UIColor* replacement = BHTPaletteReplacementForDimShade(normalized);
+    if (replacement) normalized = BHTColorIsDimShade(color) ? replacement : color;
+    if (BHTColorIsDimShade(normalized)) BHTDimRememberView(self);
     if (normalized != color) {
         // A color that's already Dim has nothing worth restoring in Light; a
         // dynamic one does, since it adapts to Light on its own.
@@ -655,13 +699,13 @@ static char BHTDimHidSolidColorViewKey;
 // Dim only recolors Dark, so these views are hidden in Dark alone. The flag
 // records which ones Dim hid, so views the app hid itself stay hidden in Light.
 static void BHTApplyDimSolidColorView(UIView* view) {
-    if (!BHTDimThemeEnabled()) return;
-
-    if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+    if (BHTDimThemeEnabled() &&
+        view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         if (!view.hidden) {
             objc_setAssociatedObject(view, &BHTDimHidSolidColorViewKey, @YES,
                                      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             view.hidden = YES;
+            BHTDimRememberView(view);
         }
     } else if (objc_getAssociatedObject(view, &BHTDimHidSolidColorViewKey)) {
         objc_setAssociatedObject(view, &BHTDimHidSolidColorViewKey, nil,
@@ -709,13 +753,13 @@ static UIImage* BHTDimSearchPillImage(void) {
 static char BHTDimSearchPillAppliedKey;
 
 static void BHTApplyDimSearchPill(UISearchBar* searchBar) {
-    if (!BHTDimThemeEnabled()) return;
-
-    if (searchBar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
+    if (BHTDimThemeEnabled() &&
+        searchBar.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         objc_setAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey, @YES,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [searchBar setSearchFieldBackgroundImage:BHTDimSearchPillImage()
                                         forState:UIControlStateNormal];
+        BHTDimRememberView(searchBar);
     } else if (objc_getAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey)) {
         objc_setAssociatedObject(searchBar, &BHTDimSearchPillAppliedKey, nil,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -777,6 +821,8 @@ static BOOL BHTIsExploreSearchBackgroundView(UIView* view) {
 - (UIColor*)textDetailsColor;
 - (UIColor*)dynamicColorWithIdentifier:(id)identifier;
 - (UIColor*)backgroundColor;
+- (UIColor*)elevatedBackgroundColor;
+- (UIColor*)highlightBackgroundColor;
 @end
 
 @interface _TtC10TFNUISwift25LegacySegmentedTabBarView (BHTDimRefresh)
@@ -797,8 +843,16 @@ static id<BHTDimTextPalette> BHTCurrentTextPalette(void) {
     return info ? ((id (*)(id, SEL))objc_msgSend)(info, @selector(colorPalette)) : nil;
 }
 
-static UIColor* BHTCurrentPaletteBackgroundColor(void) {
-    return BHTCurrentTextPalette().backgroundColor;
+static UIColor* BHTCurrentPaletteColorForDimShade(BHTDimShadeKind shade) {
+    id<BHTDimTextPalette> palette = BHTCurrentTextPalette();
+    switch (shade) {
+        case BHTDimShadeElevated:
+            return palette.elevatedBackgroundColor;
+        case BHTDimShadeHighlight:
+            return palette.highlightBackgroundColor;
+        default:
+            return palette.backgroundColor;
+    }
 }
 
 // X's tab customization screen leaves its disabled Save button nearly invisible
@@ -928,36 +982,43 @@ static void BHTApplyDimBarBackground(UIView* bar) {
 
 // MARK: - Live appearance changes
 
-static void BHTRefreshDimInView(UIView* root) {
-    Class barClass = NSClassFromString(@"_UIBarBackground");
-    Class solidClass = NSClassFromString(@"TFNSolidColorView");
-    Class searchBarClass = NSClassFromString(@"TFNSearchBar");
-    Class blurClass = NSClassFromString(@"XDSBlur");
-    Class fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
-    Class tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
-    Class gradientClass = NSClassFromString(@"TFNGradientView");
+static void BHTRefreshDimView(UIView* view) {
+    static Class barClass, solidClass, searchBarClass, blurClass, fadeClass, tabBarClass,
+        gradientClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        barClass = NSClassFromString(@"_UIBarBackground");
+        solidClass = NSClassFromString(@"TFNSolidColorView");
+        searchBarClass = NSClassFromString(@"TFNSearchBar");
+        blurClass = NSClassFromString(@"XDSBlur");
+        fadeClass = NSClassFromString(@"_TtC13XDesignSystem18ScrollEdgeFadeView");
+        tabBarClass = NSClassFromString(@"_TtC10TFNUISwift25LegacySegmentedTabBarView");
+        gradientClass = NSClassFromString(@"TFNGradientView");
+    });
 
+    BHTRefreshDimBackground(view);
+    if (barClass && [view isKindOfClass:barClass]) {
+        BHTApplyDimBarBackground(view);
+    } else if (solidClass && [view isKindOfClass:solidClass]) {
+        BHTApplyDimSolidColorView(view);
+    } else if (searchBarClass && [view isKindOfClass:searchBarClass]) {
+        BHTApplyDimSearchPill((UISearchBar*)view);
+    } else if (blurClass && [view isKindOfClass:blurClass]) {
+        BHTApplyScrollEdgeBlur((XDSBlur*)view);
+    } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
+               (gradientClass && [view isKindOfClass:gradientClass])) {
+        BHTApplyScrollEdgeFade(view);
+    } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
+        BHTRefreshSegmentedTabBarColors((_TtC10TFNUISwift25LegacySegmentedTabBarView*)view);
+    }
+}
+
+static void BHTRefreshDimInView(UIView* root) {
     NSMutableArray<UIView*>* pending = [NSMutableArray arrayWithObject:root];
     while (pending.count) {
         UIView* view = pending.lastObject;
         [pending removeLastObject];
-
-        BHTRefreshDimBackground(view);
-        if (barClass && [view isKindOfClass:barClass]) {
-            BHTApplyDimBarBackground(view);
-        } else if (solidClass && [view isKindOfClass:solidClass]) {
-            BHTApplyDimSolidColorView(view);
-        } else if (searchBarClass && [view isKindOfClass:searchBarClass]) {
-            BHTApplyDimSearchPill((UISearchBar*)view);
-        } else if (blurClass && [view isKindOfClass:blurClass]) {
-            BHTApplyScrollEdgeBlur((XDSBlur*)view);
-        } else if ((fadeClass && [view isKindOfClass:fadeClass]) ||
-                   (gradientClass && [view isKindOfClass:gradientClass])) {
-            BHTApplyScrollEdgeFade(view);
-        } else if (tabBarClass && [view isKindOfClass:tabBarClass]) {
-            BHTRefreshSegmentedTabBarColors(
-                (_TtC10TFNUISwift25LegacySegmentedTabBarView*)view);
-        }
+        BHTRefreshDimView(view);
         [pending addObjectsFromArray:view.subviews];
     }
 }
@@ -968,6 +1029,10 @@ static void BHTRefreshDimInWindows(void) {
         for (UIWindow* window in ((UIWindowScene*)scene).windows) {
             BHTRefreshDimInView(window);
         }
+    }
+    // Views off screen were not reached by the walk above.
+    for (UIView* view in BHTDimTouchedViews().allObjects) {
+        if (!view.window) BHTRefreshDimView(view);
     }
 }
 
