@@ -591,10 +591,26 @@ static UIColor* BHTCurrentPaletteBackgroundColor(void);
 // The app switches its palette before every view reports the new appearance:
 // thread replies already on screen can still claim Dark once the app is Light.
 // Returns the Light background when the palette has switched, nil otherwise.
+// This runs on hot paths, so answer from the palette's isDark flag: reading the
+// Dark palette would build a Dim proxy on every call just to say no.
 static UIColor* BHTLightPaletteBackgroundColor(void) {
     if (!BHTDimThemeEnabled()) return nil;
-    UIColor* background = BHTCurrentPaletteBackgroundColor();
-    return background && !BHTColorIsDimShade(background) ? background : nil;
+    TAETwitterColorPaletteSettingInfo* info =
+        [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
+    if (!info || info.isDark) return nil;
+    return BHTCurrentPaletteBackgroundColor();
+}
+
+// A dynamic color reads as whatever the current appearance resolves it to, so
+// a Dim reading alone doesn't make it flat: it must be Dim in Light as well.
+static BOOL BHTColorIsFlatDimShade(UIColor* color) {
+    static UITraitCollection* light;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        light = [UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleLight];
+    });
+    return BHTColorIsDimShade(color) &&
+           BHTColorIsDimShade([color resolvedColorWithTraitCollection:light]);
 }
 
 // Brings one view's background in line with the app's appearance: applies Dim
@@ -602,6 +618,9 @@ static UIColor* BHTLightPaletteBackgroundColor(void) {
 // thread replies, hold a flat copy of the Dim color with nothing saved; they get
 // the palette's color, whose identifier lets the app handle later switches.
 static void BHTRefreshDimBackground(UIView* view) {
+    // Turning Dim off restarts the app, so nothing is ever saved while it's off.
+    if (!BHTDimThemeEnabled()) return;
+
     UIColor* current = view.backgroundColor;
     if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark) {
         UIColor* normalized = current ? BHTDimNormalizedViewBackground(view, current) : nil;
@@ -638,8 +657,9 @@ static void BHTRefreshDimBackground(UIView* view) {
         if (light) normalized = BHTColorIsDimShade(color) ? light : color;
     }
     if (normalized != color) {
-        // A color that's already Dim has nothing worth restoring in Light.
-        if (!BHTColorIsDimShade(color)) {
+        // A color that's already Dim has nothing worth restoring in Light; a
+        // dynamic one does, since it adapts to Light on its own.
+        if (!BHTColorIsFlatDimShade(color)) {
             BHTSaveDimOriginalBackground(self, color);
         }
     } else if (objc_getAssociatedObject(self, &BHTDimOriginalBackgroundKey) &&
