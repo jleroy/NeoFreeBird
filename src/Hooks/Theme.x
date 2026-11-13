@@ -420,72 +420,42 @@ static void BHTApplyDimScrollEdgeChildren(UIView* treatment) {
 // dynamic system background colors, which Apple defines as pure black (or
 // near enough) in Dark. Re-point those at the same three Dim shades so
 // nothing native-styled is left behind.
+// Dim can be turned off while the app runs, so the provider checks the setting
+// on every resolve rather than only when the color was created.
+static UIColor* BHTDimSystemColor(UIColor* original, UIColor* (*dimShade)(void)) {
+    if (!BHTDimThemeEnabled()) {
+        return original;
+    }
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return BHTDimThemeEnabled() && traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? dimShade() : original;
+    }];
+}
+
 %hook UIColor
 
 + (UIColor*)systemBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimBackgroundColor);
 }
 
 + (UIColor*)secondarySystemBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimElevatedBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimElevatedBackgroundColor);
 }
 
 + (UIColor*)tertiarySystemBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimHighlightBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimHighlightBackgroundColor);
 }
 
 + (UIColor*)systemGroupedBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimBackgroundColor);
 }
 
 + (UIColor*)secondarySystemGroupedBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimElevatedBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimElevatedBackgroundColor);
 }
 
 + (UIColor*)tertiarySystemGroupedBackgroundColor {
-    UIColor* original = %orig;
-    if (!BHTDimThemeEnabled()) {
-        return original;
-    }
-    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
-        return traits.userInterfaceStyle == UIUserInterfaceStyleDark ? BHTDimHighlightBackgroundColor()
-                                                                     : original;
-    }];
+    return BHTDimSystemColor(%orig, BHTDimHighlightBackgroundColor);
 }
 
 %end
@@ -1032,6 +1002,54 @@ static void BHTScheduleDimRefresh(void) {
 }
 
 %end
+
+// Dim is applied on the way into Dark and undone on the way into Light, so a
+// setting change while the app is Dark takes a round trip through Light: the
+// same path a system appearance switch takes, instead of a third one of its
+// own. Forcing Light on the windows moves the traits; the palette follows
+// through X's trait handler when its theme is System, and is switched here
+// directly when the theme is pinned to Dark. When turning Dim off, the setting
+// stays on through the Light pass so that pass restores what Dim changed.
+void BHTDimSettingDidChange(BOOL enabled) {
+    TAETwitterColorPaletteSettingInfo* info =
+        [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
+    if (!info.isDark) return; // Dim is picked on the way into Dark.
+
+    if (!enabled) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"enable_dim_theme"];
+    }
+
+    NSMutableArray<UIWindow*>* windows = [NSMutableArray array];
+    NSMutableArray<NSNumber*>* styles = [NSMutableArray array];
+    for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow* window in ((UIWindowScene*)scene).windows) {
+            [windows addObject:window];
+            [styles addObject:@(window.overrideUserInterfaceStyle)];
+            window.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+        }
+    }
+    [objc_getClass("T1ColorSettings") transitionToDarkMode:NO animated:NO];
+    BHTScheduleDimRefresh();
+
+    // Past the delayed refresh pass, so the Light pass has finished its work.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (!enabled) {
+            [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"enable_dim_theme"];
+        }
+        [windows enumerateObjectsUsingBlock:^(UIWindow* window, NSUInteger index, BOOL* stop) {
+            window.overrideUserInterfaceStyle = styles[index].integerValue;
+        }];
+        UIWindow* keyWindow = windows.firstObject;
+        for (UIWindow* window in windows) {
+            if (window.isKeyWindow) keyWindow = window;
+        }
+        BOOL dark = keyWindow.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark;
+        [objc_getClass("T1ColorSettings") transitionToDarkMode:dark animated:NO];
+        BHTScheduleDimRefresh();
+    });
+}
 
 // MARK: - Custom tab bar order and visibility
 

@@ -413,9 +413,8 @@
 "ENABLE_DIM_THEME_TITLE" = "Alacakaranlık temasını etkinleştir";
 "ENABLE_DIM_THEME_DETAIL" = "Twitter için kaldırılan alacakaranlık temasını geri getirir. Koyu modun etkin olmasını ve yeniden başlatma gerektirir.";
 
-"DIM_THEME_RESTART_ALERT_TITLE" = "Yeniden başlatma gerekli";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "Alacakaranlık temasının etkili olması için yeniden başlatma gerekir.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Yeniden başlat";
+"RESTART_ALERT_TITLE" = "Yeniden başlatma gerekli";
+"RESTART_ALERT_RESTART_BUTTON" = "Yeniden başlat";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "Alıntı Tweetleri gizle";
 "HIDE_QUOTE_TWEETS_DETAIL" = "Zaman akışınızdaki alıntı Tweetleri gizler.";

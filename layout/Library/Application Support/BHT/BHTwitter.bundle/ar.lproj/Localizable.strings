@@ -370,9 +370,8 @@
 /*Dim Theme*/
 "ENABLE_DIM_THEME_TITLE" = "تفعيل السمة الخافتة";
 "ENABLE_DIM_THEME_DETAIL" = "استعادة السمة الخافتة التي أُزيلت من تويتر. تتطلب تفعيل الوضع الداكن وإعادة تشغيل التطبيق.";
-"DIM_THEME_RESTART_ALERT_TITLE" = "إعادة التشغيل مطلوبة";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "أعد تشغيل التطبيق كي تسري السمة الخافتة.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "إعادة التشغيل";
+"RESTART_ALERT_TITLE" = "إعادة التشغيل مطلوبة";
+"RESTART_ALERT_RESTART_BUTTON" = "إعادة التشغيل";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "إخفاء تغريدات الاقتباس";
 "HIDE_QUOTE_TWEETS_DETAIL" = "إخفاء تغريدات الاقتباس من الخط الزمني.";

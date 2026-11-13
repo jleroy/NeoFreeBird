@@ -380,9 +380,8 @@
 "ENABLE_DIM_THEME_TITLE" = "Activar tema tenue";
 "ENABLE_DIM_THEME_DETAIL" = "Restaura el tema tenue eliminado de Twitter. Requiere tener activado el modo oscuro y reiniciar.";
 
-"DIM_THEME_RESTART_ALERT_TITLE" = "Se requiere reiniciar";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "El tema tenue requiere un reinicio para aplicarse.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Reiniciar";
+"RESTART_ALERT_TITLE" = "Se requiere reiniciar";
+"RESTART_ALERT_RESTART_BUTTON" = "Reiniciar";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "Ocultar Tweets citados";
 "HIDE_QUOTE_TWEETS_DETAIL" = "Oculta los Tweets citados en tu cronología.";

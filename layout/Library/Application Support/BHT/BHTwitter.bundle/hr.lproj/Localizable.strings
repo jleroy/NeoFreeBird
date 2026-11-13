@@ -334,9 +334,8 @@
 /*Dim Theme*/
 "ENABLE_DIM_THEME_TITLE" = "Uključi dim temu";
 "ENABLE_DIM_THEME_DETAIL" = "Vraća dim temu za Twitter. Potrebno je imati upaljen dark mode te napraviti restart.";
-"DIM_THEME_RESTART_ALERT_TITLE" = "Restart potreban";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "Za primjenu dim teme potrebno je ponovno pokrenuti aplikaciju.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Restart";
+"RESTART_ALERT_TITLE" = "Restart potreban";
+"RESTART_ALERT_RESTART_BUTTON" = "Restart";
 
 "HIDE_VERIFIED_TWEETS_TITLE" = "Sakrij tweetove potvrđenih računa";
 "HIDE_VERIFIED_TWEETS_DETAIL" = "Skriva tweetove s potvrđenih računa u vašoj vremenskoj liniji i odgovorima, osim ako autor nije odgovorio na njih u istom threadu ili ako pratite račun.";

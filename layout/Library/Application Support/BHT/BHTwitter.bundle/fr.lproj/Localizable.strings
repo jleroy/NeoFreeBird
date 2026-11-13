@@ -371,9 +371,8 @@
 /*Dim Theme*/
 "ENABLE_DIM_THEME_TITLE" = "Activer le thème bleu nuit";
 "ENABLE_DIM_THEME_DETAIL" = "Rétablit le thème bleu nuit supprimé de Twitter. Nécessite l’activation du mode sombre et un redémarrage.";
-"DIM_THEME_RESTART_ALERT_TITLE" = "Redémarrage nécessaire";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "Le thème bleu nuit nécessite un redémarrage pour prendre effet.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Redémarrer";
+"RESTART_ALERT_TITLE" = "Redémarrage nécessaire";
+"RESTART_ALERT_RESTART_BUTTON" = "Redémarrer";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "Masquer les Tweets citant d’autres Tweets";
 "HIDE_QUOTE_TWEETS_DETAIL" = "Masque les Tweets citant d’autres Tweets dans votre fil.";

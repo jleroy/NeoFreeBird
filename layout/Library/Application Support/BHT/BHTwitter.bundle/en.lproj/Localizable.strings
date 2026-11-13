@@ -371,9 +371,8 @@
 /*Dim Theme*/
 "ENABLE_DIM_THEME_TITLE" = "Enable dim theme";
 "ENABLE_DIM_THEME_DETAIL" = "Restores the removed dim theme for Twitter. Requires dark mode to be enabled and a restart.";
-"DIM_THEME_RESTART_ALERT_TITLE" = "Restart required";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "The dim theme requires a restart to take effect.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Restart";
+"RESTART_ALERT_TITLE" = "Restart required";
+"RESTART_ALERT_RESTART_BUTTON" = "Restart";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "Hide quote Tweets";
 "HIDE_QUOTE_TWEETS_DETAIL" = "Hides quote Tweets in your timeline.";

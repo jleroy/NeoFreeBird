@@ -274,9 +274,8 @@
 /*Tema Dim*/
 "ENABLE_DIM_THEME_TITLE" = "Ativar tema Dim";
 "ENABLE_DIM_THEME_DETAIL" = "Restaura o tema Dim removido do Twitter. Requer modo escuro e reinicialização.";
-"DIM_THEME_RESTART_ALERT_TITLE" = "Reinicialização necessária";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "O tema Dim exige reiniciar o app para ser aplicado.";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "Reiniciar";
+"RESTART_ALERT_TITLE" = "Reinicialização necessária";
+"RESTART_ALERT_RESTART_BUTTON" = "Reiniciar";
 "HIDE_QUOTE_TWEETS_TITLE" = "Ocultar Tweets citados";
 "HIDE_QUOTE_TWEETS_DETAIL" = "Oculta Tweets citados da timeline.";
 "HIDE_RETWEETS_TITLE" = "Ocultar Retweets";

@@ -371,9 +371,8 @@
 /*Dim Theme*/
 "ENABLE_DIM_THEME_TITLE" = "啟用暗色主題";
 "ENABLE_DIM_THEME_DETAIL" = "還原被移除的 Twitter 暗色主題。需要啟用深色模式並重新啟動。";
-"DIM_THEME_RESTART_ALERT_TITLE" = "需要重新啟動";
-"DIM_THEME_RESTART_ALERT_MESSAGE" = "暗色主題需要重新啟動才能生效。";
-"DIM_THEME_RESTART_ALERT_RESTART_BUTTON" = "重新啟動";
+"RESTART_ALERT_TITLE" = "需要重新啟動";
+"RESTART_ALERT_RESTART_BUTTON" = "重新啟動";
 
 "HIDE_QUOTE_TWEETS_TITLE" = "隱藏引用推文";
 "HIDE_QUOTE_TWEETS_DETAIL" = "隱藏時間軸中的引用推文。";
