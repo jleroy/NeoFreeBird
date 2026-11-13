@@ -1008,16 +1008,25 @@ static void BHTScheduleDimRefresh(void) {
 // same path a system appearance switch takes, instead of a third one of its
 // own. Forcing Light on the windows moves the traits; the palette follows
 // through X's trait handler when its theme is System, and is switched here
-// directly when the theme is pinned to Dark. When turning Dim off, the setting
-// stays on through the Light pass so that pass restores what Dim changed.
+// directly when the theme is pinned to Dark. The setting stays on through the
+// Light pass so that pass restores what Dim changed; the value written at the
+// end is the last one asked for, so flipping the switch again mid-trip is safe.
+static BOOL BHTDimRequestedEnabled;
+static BOOL BHTDimRoundTripInFlight;
+
 void BHTDimSettingDidChange(BOOL enabled) {
+    BHTDimRequestedEnabled = enabled;
+    if (BHTDimRoundTripInFlight) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"enable_dim_theme"];
+        return;
+    }
+
     TAETwitterColorPaletteSettingInfo* info =
         [[objc_getClass("TAEColorSettings") sharedSettings] currentColorPalette];
     if (!info.isDark) return; // Dim is picked on the way into Dark.
 
-    if (!enabled) {
-        [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"enable_dim_theme"];
-    }
+    BHTDimRoundTripInFlight = YES;
+    [NSUserDefaults.standardUserDefaults setBool:YES forKey:@"enable_dim_theme"];
 
     NSMutableArray<UIWindow*>* windows = [NSMutableArray array];
     NSMutableArray<NSNumber*>* styles = [NSMutableArray array];
@@ -1035,9 +1044,9 @@ void BHTDimSettingDidChange(BOOL enabled) {
     // Past the delayed refresh pass, so the Light pass has finished its work.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        if (!enabled) {
-            [NSUserDefaults.standardUserDefaults setBool:NO forKey:@"enable_dim_theme"];
-        }
+        BHTDimRoundTripInFlight = NO;
+        [NSUserDefaults.standardUserDefaults setBool:BHTDimRequestedEnabled
+                                              forKey:@"enable_dim_theme"];
         [windows enumerateObjectsUsingBlock:^(UIWindow* window, NSUInteger index, BOOL* stop) {
             window.overrideUserInterfaceStyle = styles[index].integerValue;
         }];
