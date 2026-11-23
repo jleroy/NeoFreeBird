@@ -1148,6 +1148,7 @@ id<TAEColorPalette> BHTThemeColorPalette(id info, id<TAEColorPalette> realPalett
 // Dim can be turned off while the app runs, so the provider checks the setting
 // on every resolve rather than only when the color was created.
 UIColor* BHTThemeSystemBackground(UIColor* original, UIColor* dim) {
+    return original; // TEMP test A: system background hooks disabled
     if (!BHTDimThemeEnabled()) return original;
     return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
         return BHTDimThemeEnabled() && traits.userInterfaceStyle == UIUserInterfaceStyleDark
