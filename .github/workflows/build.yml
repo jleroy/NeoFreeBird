@@ -5,7 +5,7 @@ on:
     inputs:
       sdk_version:
         description: "iOS SDK Version"
-        default: "16.5"
+        default: "26.5"
         required: true
         type: string
       target_version:
@@ -14,7 +14,7 @@ on:
         required: true
       decrypted_ipa_url:
         description: "Direct URL of an X IPA"
-        default: ""
+        default: "https://mesfichiers.org/?6xq6jxeqktssi2xap48o"
         required: true
         type: string
       deploy_format:
@@ -60,7 +60,7 @@ concurrency:
 jobs:
   build:
     name: Build Tweak
-    runs-on: macos-latest
+    runs-on: xcode-27
     permissions:
       contents: write
 
@@ -74,6 +74,8 @@ jobs:
 
       - name: Install Dependencies
         run: brew install make dpkg ldid
+        env:
+          HOMEBREW_NO_ASK: "1"
 
       - name: Add GNU Make to PATH
         run: |
@@ -104,11 +106,17 @@ jobs:
       - name: Download iOS SDK
         if: steps.SDK.outputs.cache-hit != 'true'
         run: |
-          git clone -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
-          cd sdks
-          git sparse-checkout set --no-cone iPhoneOS${{ inputs.sdk_version }}.sdk
+          versions=$(printf '%s\n' "${{ inputs.sdk_version }}" 26.5 16.5 | sort -u)
+          git clone -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs ios-sdks
+          cd ios-sdks
+          git sparse-checkout set --no-cone $(printf 'iPhoneOS%s.sdk ' $versions)
           git checkout
-          mv ./*.sdk "${THEOS}/sdks"
+          mkdir -p "${THEOS}/sdks"
+          for version in $versions; do
+            if [[ ! -d "${THEOS}/sdks/iPhoneOS${version}.sdk" ]]; then
+              mv "iPhoneOS${version}.sdk" "${THEOS}/sdks/"
+            fi
+          done
         env:
           THEOS: ${{ github.workspace }}/theos
 
@@ -159,6 +167,7 @@ jobs:
           cd ${{ github.workspace }}/main
           sed -i '' "s/^TARGET.*$/TARGET := iphone:clang:${{ inputs.sdk_version }}:${{ inputs.target_version }}/" Makefile
           ./build.sh --${{ inputs.deploy_format }}
+          rm -f packages/com.atebits.Tweetie2.ipa
         env:
           THEOS: ${{ github.workspace }}/theos
           BUILD_DIR: ${{ github.workspace }}/ffmpeg-build
