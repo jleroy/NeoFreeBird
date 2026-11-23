@@ -375,13 +375,30 @@ static BOOL BHTDimLeavesBackgroundAlone(UIView* view) {
     return buttonClass && [view isKindOfClass:buttonClass];
 }
 
-static UIColor* BHTDimNormalizedBackground(UIView* view, UIColor* color,
-                                           UITraitCollection* traits) {
-    if (!view || !color || !BHTDimThemeEnabled() ||
-        traits.userInterfaceStyle != UIUserInterfaceStyleDark) {
-        return color;
+// The full-screen media viewer stays black, as it was in Twitter's Dim theme.
+// It runs on hot paths, so callers ask only once Dim would change a color.
+static BOOL BHTDimSparesMediaViewer(UIView* view) {
+    static Class fullScreenClass;
+    static Class immersiveClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        fullScreenClass = NSClassFromString(@"T1ImmersiveFullScreenViewController");
+        immersiveClass = NSClassFromString(@"T1ImmersiveViewController");
+    });
+    // The view's own controller only: the replies sheet the viewer presents
+    // has its own, and keeps Dim.
+    for (UIResponder* responder = view.nextResponder; responder;
+         responder = responder.nextResponder) {
+        if ([responder isKindOfClass:UIViewController.class]) {
+            return (fullScreenClass && [responder isKindOfClass:fullScreenClass]) ||
+                   (immersiveClass && [responder isKindOfClass:immersiveClass]);
+        }
     }
+    return NO;
+}
 
+static UIColor* BHTDimShadeForBackground(UIView* view, UIColor* color,
+                                         UITraitCollection* traits) {
     if (BHTIsScrollEdgeBlurTintView(view)) {
         UIColor* dimTint = BHTDimScrollEdgeColor(color, traits);
         if (dimTint) return dimTint;
@@ -401,6 +418,16 @@ static UIColor* BHTDimNormalizedBackground(UIView* view, UIColor* color,
     }
 
     return color;
+}
+
+static UIColor* BHTDimNormalizedBackground(UIView* view, UIColor* color,
+                                           UITraitCollection* traits) {
+    if (!view || !color || !BHTDimThemeEnabled() ||
+        traits.userInterfaceStyle != UIUserInterfaceStyleDark) {
+        return color;
+    }
+    UIColor* normalized = BHTDimShadeForBackground(view, color, traits);
+    return normalized != color && BHTDimSparesMediaViewer(view) ? color : normalized;
 }
 
 static UIColor* BHTCurrentPaletteColorForDimShade(BHTDimShadeKind shade);
@@ -481,8 +508,14 @@ static void BHTRefreshDimBackgroundAs(UIView* view, UITraitCollection* traits) {
                 // normalize with the view's own traits, not with `traits`.
                 if (!BHTColorIsFlatDimShade(current)) BHTSaveDimOriginalBackground(view, current);
                 view.backgroundColor = normalized;
+                return;
             }
-            return;
+            // A view can get Dim before it joins the media viewer, which then
+            // has to undo it below; any other view is done.
+            if (!objc_getAssociatedObject(view, &BHTDimOriginalBackgroundKey) ||
+                !BHTDimSparesMediaViewer(view)) {
+                return;
+            }
         }
     }
 
