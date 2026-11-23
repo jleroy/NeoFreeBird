@@ -16,7 +16,6 @@ UIColor* BHTThemePrimaryColor(id palette, UIColor* native);
 UIColor* BHTThemeLoadedColor(id loader, NSString* name, UIColor* color);
 UIColor* BHTThemeDynamicColor(UIColor* color, UIColor* resolved);
 id<TAEColorPalette> BHTThemeColorPalette(id info, id<TAEColorPalette> realPalette, BOOL isDark);
-UIColor* BHTThemeSystemBackground(UIColor* original, UIColor* dim);
 UIColor* BHTThemeResolvedBackground(UIColor* original, UITraitCollection* traits);
 void BHTUpdateDimGlass(UIView* glass);
 BOOL BHTIsInsideScrollEdgeTreatment(UIView* view);

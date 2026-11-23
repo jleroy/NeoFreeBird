@@ -122,34 +122,9 @@ static BOOL updatingTabIconColor = NO;
 
 %end
 
-%hook UIColor
-
-+ (UIColor*)systemBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimBackgroundColor());
-}
-
-+ (UIColor*)secondarySystemBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimElevatedBackgroundColor());
-}
-
-+ (UIColor*)tertiarySystemBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimHighlightBackgroundColor());
-}
-
-+ (UIColor*)systemGroupedBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimBackgroundColor());
-}
-
-+ (UIColor*)secondarySystemGroupedBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimElevatedBackgroundColor());
-}
-
-+ (UIColor*)tertiarySystemGroupedBackgroundColor {
-    return BHTThemeSystemBackground(%orig, BHTDimHighlightBackgroundColor());
-}
-
-%end
-
+// The system background colors get Dim from this resolution hook alone. Hooking
+// +systemBackgroundColor and its variants to return a provider color made
+// UIKit stop recognizing them, which turned Liquid Glass button titles gray.
 %hook UIDynamicSystemColor
 
 - (UIColor*)resolvedColorWithTraitCollection:(UITraitCollection*)traitCollection {
