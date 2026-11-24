@@ -375,24 +375,33 @@ static BOOL BHTDimLeavesBackgroundAlone(UIView* view) {
     return buttonClass && [view isKindOfClass:buttonClass];
 }
 
-// The full-screen media viewer stays black, as it was in Twitter's Dim theme.
-// It runs on hot paths, so callers ask only once Dim would change a color.
+// The full-screen media viewers stay black, as they were in Twitter's Dim
+// theme: the timeline's, and Chat's for attachments. It runs on hot paths, so
+// callers ask only once Dim would change a color.
 static BOOL BHTDimSparesMediaViewer(UIView* view) {
-    static Class fullScreenClass;
-    static Class immersiveClass;
+    static NSArray<Class>* viewerClasses;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        fullScreenClass = NSClassFromString(@"T1ImmersiveFullScreenViewController");
-        immersiveClass = NSClassFromString(@"T1ImmersiveViewController");
+        NSMutableArray<Class>* classes = [NSMutableArray array];
+        for (NSString* name in @[
+                 @"T1ImmersiveFullScreenViewController",
+                 @"T1ImmersiveViewController",
+                 @"_TtC20ChatAttachmentViewer30AttachmentViewerViewController",
+             ]) {
+            Class viewerClass = NSClassFromString(name);
+            if (viewerClass) [classes addObject:viewerClass];
+        }
+        viewerClasses = [classes copy];
     });
-    // The view's own controller only: the replies sheet the viewer presents
-    // has its own, and keeps Dim.
+    // The view's own controller only: the replies sheet the timeline's viewer
+    // presents has its own, and keeps Dim.
     for (UIResponder* responder = view.nextResponder; responder;
          responder = responder.nextResponder) {
-        if ([responder isKindOfClass:UIViewController.class]) {
-            return (fullScreenClass && [responder isKindOfClass:fullScreenClass]) ||
-                   (immersiveClass && [responder isKindOfClass:immersiveClass]);
+        if (![responder isKindOfClass:UIViewController.class]) continue;
+        for (Class viewerClass in viewerClasses) {
+            if ([responder isKindOfClass:viewerClass]) return YES;
         }
+        return NO;
     }
     return NO;
 }
